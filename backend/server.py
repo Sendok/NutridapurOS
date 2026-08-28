@@ -26,6 +26,8 @@ from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from reportlab.platypus import (
     SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
 )
+from reportlab.graphics.shapes import Drawing, Rect, Circle, Polygon, String
+from reportlab.graphics import renderPDF
 
 from fallback_menus import FALLBACK_MENUS
 from seed import seed_database, KITCHEN_NAME, QC_PHOTO_URL
@@ -646,11 +648,13 @@ async def read_all_notifications(user=Depends(get_current_user)):
 
 # ================= Finance & SIPGN Export =================
 @api_router.get('/finance/pnl')
-async def finance_pnl(user=Depends(require_roles('admin'))):
-    financials = await db.financials.find({}, {'_id': 0}).sort('tanggal', -1).to_list(30)
+async def finance_pnl(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles('admin'))):
+    financials = await db.financials.find(_date_query(start, end), {'_id': 0}).sort('tanggal', -1).to_list(100)
     total_budget = sum(f['budget'] for f in financials)
     total_actual = sum(f['aktual'] for f in financials)
     total_porsi = sum(f['porsi'] for f in financials)
+    all_tgl = await db.financials.find({}, {'_id': 0, 'tanggal': 1}).sort('tanggal', 1).to_list(1000)
+    tgls = [t['tanggal'] for t in all_tgl if t.get('tanggal')]
     return {
         'rows': serialize_doc(financials),
         'total_budget': total_budget,
@@ -660,6 +664,8 @@ async def finance_pnl(user=Depends(require_roles('admin'))):
         'margin_persen': round((total_budget - total_actual) / total_budget * 100, 1) if total_budget else 0,
         'hpp_rata': round(total_actual / total_porsi) if total_porsi else 0,
         'budget_compliance': round(total_actual / total_budget * 100, 1) if total_budget else 0,
+        'available_min': tgls[0] if tgls else None,
+        'available_max': tgls[-1] if tgls else None,
     }
 
 
@@ -668,6 +674,25 @@ def _rp(v):
         return 'Rp ' + f'{int(round(v)):,}'.replace(',', '.')
     except Exception:
         return 'Rp 0'
+
+
+def _logo_drawing(size=16 * mm):
+    """Logo NutriDapur OS: topi chef putih di dalam kotak membulat hijau."""
+    s = size
+    green = colors.HexColor('#16a34a')
+    white = colors.white
+    d = Drawing(s, s)
+    # kotak latar membulat
+    d.add(Rect(0, 0, s, s, rx=s * 0.18, ry=s * 0.18, fillColor=green, strokeColor=None))
+    # pita bawah topi
+    d.add(Rect(s * 0.28, s * 0.22, s * 0.44, s * 0.15, fillColor=white, strokeColor=None))
+    # badan topi
+    d.add(Rect(s * 0.30, s * 0.34, s * 0.40, s * 0.22, fillColor=white, strokeColor=None))
+    # gundukan topi (3 lingkaran)
+    d.add(Circle(s * 0.37, s * 0.55, s * 0.13, fillColor=white, strokeColor=None))
+    d.add(Circle(s * 0.63, s * 0.55, s * 0.13, fillColor=white, strokeColor=None))
+    d.add(Circle(s * 0.50, s * 0.62, s * 0.155, fillColor=white, strokeColor=None))
+    return d
 
 
 def build_sipgn_pdf(report: dict) -> bytes:
@@ -701,17 +726,38 @@ def build_sipgn_pdf(report: dict) -> bytes:
 
     elems = []
     rk = report['ringkasan']
+    periode_txt = report.get('periode', report['tanggal_laporan'])
 
-    # ---------- Header banner ----------
+    # ---------- Kop resmi (letterhead) ----------
+    kop_kiri = Paragraph(
+        f"<b>{report['satuan_pelayanan']}</b><br/>"
+        "<font size=7.5 color='#64748b'>Satuan Pelayanan Pemenuhan Gizi (SPPG) — Program Makan Bergizi Gratis (MBG)</font><br/>"
+        "<font size=7.5 color='#64748b'>Jl. Sukajadi No. 45, Bandung, Jawa Barat • Telp: (022) 555-0148 • sppg.sukajadi@mbg.go.id</font>",
+        ParagraphStyle('kop', parent=styles['Normal'], fontSize=11, textColor=GREEN_DARK, leading=13),
+    )
+    kop_tbl = Table([[_logo_drawing(16 * mm), kop_kiri]], colWidths=[20 * mm, 158 * mm])
+    kop_tbl.setStyle(TableStyle([
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('LEFTPADDING', (0, 0), (0, 0), 0),
+        ('RIGHTPADDING', (0, 0), (0, 0), 8),
+        ('LEFTPADDING', (1, 0), (1, 0), 4),
+    ]))
+    elems.append(kop_tbl)
+    elems.append(Spacer(1, 6))
+    elems.append(HRFlowable(width='100%', thickness=1.4, color=GREEN))
+    elems.append(HRFlowable(width='100%', thickness=0.6, color=AMBER, spaceBefore=1.5))
+    elems.append(Spacer(1, 10))
+
+    # ---------- Header banner judul ----------
     header_tbl = Table([[
-        Paragraph('<b>NutriDapur&nbsp;OS</b>', ParagraphStyle('logo', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.white)),
-        Paragraph('LAPORAN OPERASIONAL SIPGN / BGN<br/><font size=7>Program Makan Bergizi Gratis (MBG)</font>', ParagraphStyle('hr', parent=styles['Normal'], fontSize=10, textColor=colors.white, alignment=TA_RIGHT, leading=13)),
+        Paragraph('<b>NutriDapur&nbsp;OS</b><br/><font size=7>Operational OS for Kitchen Vendors</font>', ParagraphStyle('logo', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, textColor=colors.white, leading=15)),
+        Paragraph('LAPORAN OPERASIONAL SIPGN / BGN<br/><font size=7>Periode: ' + periode_txt + '</font>', ParagraphStyle('hr', parent=styles['Normal'], fontSize=11, textColor=colors.white, alignment=TA_RIGHT, leading=14)),
     ]], colWidths=[70 * mm, 108 * mm])
     header_tbl.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), GREEN),
         ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
-        ('TOPPADDING', (0, 0), (-1, -1), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('TOPPADDING', (0, 0), (-1, -1), 11),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 11),
         ('LEFTPADDING', (0, 0), (-1, -1), 12),
         ('RIGHTPADDING', (0, 0), (-1, -1), 12),
         ('ROUNDEDCORNERS', [6, 6, 6, 6]),
@@ -722,7 +768,8 @@ def build_sipgn_pdf(report: dict) -> bytes:
     # ---------- Info satuan pelayanan ----------
     info_rows = [
         ['Satuan Pelayanan', report['satuan_pelayanan']],
-        ['Tanggal Laporan', report['tanggal_laporan']],
+        ['Periode Laporan', periode_txt],
+        ['Tanggal Cetak', report['tanggal_laporan']],
         ['Dinyatakan Oleh', report['dinyatakan_oleh']],
         ['Format Dokumen', report['format']],
         ['Status Kepatuhan', 'PATUH' if rk['kepatuhan_anggaran_persen'] <= 100 else 'PERLU TINJAUAN'],
@@ -903,10 +950,33 @@ def build_sipgn_pdf(report: dict) -> bytes:
     return buf.getvalue()
 
 
+def _date_query(start: Optional[str], end: Optional[str]):
+    q = {}
+    rng = {}
+    if start:
+        rng['$gte'] = start
+    if end:
+        rng['$lte'] = end
+    if rng:
+        q['tanggal'] = rng
+    return q
+
+
+def _periode_label(start: Optional[str], end: Optional[str], financials):
+    if start and end:
+        return f'{start} s/d {end}'
+    if financials:
+        tgls = sorted(f.get('tanggal', '') for f in financials if f.get('tanggal'))
+        if tgls:
+            return f'{tgls[0]} s/d {tgls[-1]}'
+    return now_utc().strftime('%Y-%m-%d')
+
+
 @api_router.get('/reports/sipgn-export')
-async def sipgn_export(user=Depends(require_roles('admin'))):
+async def sipgn_export(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles('admin'))):
     today = now_utc().strftime('%Y-%m-%d')
-    financials = await db.financials.find({}, {'_id': 0}).sort('tanggal', 1).to_list(30)
+    financials = await db.financials.find(_date_query(start, end), {'_id': 0}).sort('tanggal', 1).to_list(100)
+    periode = _periode_label(start, end, financials)
     menu = await db.menus.find_one({'status': 'locked'}, {'_id': 0}, sort=[('created_at', -1)])
     qc = await db.qc_logs.find_one({'status': 'approved'}, {'_id': 0}, sort=[('created_at', -1)])
     deliveries = await db.deliveries.find({}, {'_id': 0}).to_list(200)
@@ -916,6 +986,7 @@ async def sipgn_export(user=Depends(require_roles('admin'))):
         'format': 'LAPORAN_SIPGN_BGN_V1',
         'sistem': 'NutriDapur OS',
         'tanggal_laporan': today,
+        'periode': periode,
         'satuan_pelayanan': KITCHEN_NAME,
         'ringkasan': {
             'total_porsi_periode': sum(f['porsi'] for f in financials),
@@ -933,7 +1004,7 @@ async def sipgn_export(user=Depends(require_roles('admin'))):
         'dinyatakan_oleh': user['nama'],
         'catatan': 'Laporan ini dihasilkan otomatis oleh NutriDapur OS dalam format siap unggah SIPGN/BGN.',
     }
-    await add_notification('Laporan SIPGN Diekspor', f"Laporan format SIPGN/BGN (PDF) berhasil diekspor oleh {user['nama']}.", 'success')
+    await add_notification('Laporan SIPGN Diekspor', f"Laporan format SIPGN/BGN (PDF) periode {periode} berhasil diekspor oleh {user['nama']}.", 'success')
     pdf_bytes = build_sipgn_pdf(report)
     return Response(
         content=pdf_bytes,
@@ -943,14 +1014,15 @@ async def sipgn_export(user=Depends(require_roles('admin'))):
 
 
 @api_router.get('/reports/finance-excel')
-async def finance_excel(user=Depends(require_roles('admin'))):
+async def finance_excel(start: Optional[str] = None, end: Optional[str] = None, user=Depends(require_roles('admin'))):
     """Ekspor rekap keuangan P&L ke file Excel (.xlsx) yang rapi."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
 
     today = now_utc().strftime('%Y-%m-%d')
-    financials = await db.financials.find({}, {'_id': 0}).sort('tanggal', 1).to_list(30)
+    financials = await db.financials.find(_date_query(start, end), {'_id': 0}).sort('tanggal', 1).to_list(100)
+    periode = _periode_label(start, end, financials)
 
     wb = Workbook()
     ws = wb.active
@@ -974,7 +1046,7 @@ async def finance_excel(user=Depends(require_roles('admin'))):
     ws['A1'] = 'NutriDapur OS — Rekap Keuangan P&L'
     ws['A1'].font = TITLE_FONT
     ws.merge_cells('A2:H2')
-    ws['A2'] = f'{KITCHEN_NAME}  •  Tanggal Laporan: {today}  •  Standar SIPGN/BGN'
+    ws['A2'] = f'{KITCHEN_NAME}  •  Periode: {periode}  •  Dicetak: {today}  •  Standar SIPGN/BGN'
     ws['A2'].font = SUB_FONT
     ws.row_dimensions[1].height = 24
 
