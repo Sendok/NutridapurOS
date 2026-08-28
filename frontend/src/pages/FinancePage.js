@@ -6,12 +6,14 @@ import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Wallet, TrendingUp, Percent, FileUp, Printer, Loader2, CheckCircle2 } from 'lucide-react';
+import { Wallet, TrendingUp, Percent, FileUp, Printer, Loader2, CheckCircle2, FileSpreadsheet } from 'lucide-react';
 
 export default function FinancePage() {
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(true);
   const [exporting, setExporting] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [exportingExcel, setExportingExcel] = useState(false);
 
   useEffect(() => {
     api.get('/finance/pnl')
@@ -40,9 +42,43 @@ export default function FinancePage() {
     }
   };
 
-  const printPreview = () => {
-    toast.info('Membuka print preview laporan...');
-    setTimeout(() => window.print(), 400);
+  const exportExcel = async () => {
+    setExportingExcel(true);
+    try {
+      const res = await api.get('/reports/finance-excel', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' }));
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `rekap-keuangan-${new Date().toISOString().slice(0, 10)}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      toast.success('Rekap keuangan Excel berhasil diunduh!', { description: 'File .xlsx berisi rincian harian & ringkasan P&L.' });
+    } catch {
+      toast.error('Gagal mengekspor rekap Excel.');
+    } finally {
+      setExportingExcel(false);
+    }
+  };
+
+  const printPreview = async () => {
+    setPreviewing(true);
+    try {
+      const res = await api.get('/reports/sipgn-export', { responseType: 'blob' });
+      const url = URL.createObjectURL(new Blob([res.data], { type: 'application/pdf' }));
+      const win = window.open(url, '_blank');
+      if (!win) {
+        toast.error('Pop-up diblokir. Izinkan pop-up untuk melihat pratinjau PDF.');
+      } else {
+        toast.success('Pratinjau PDF dibuka di tab baru.', { description: 'Anda dapat mencetak langsung dari tab tersebut.' });
+      }
+      setTimeout(() => URL.revokeObjectURL(url), 60000);
+    } catch {
+      toast.error('Gagal membuka pratinjau PDF.');
+    } finally {
+      setPreviewing(false);
+    }
   };
 
   if (loading) {
@@ -63,9 +99,14 @@ export default function FinancePage() {
           <h1 className="font-display text-2xl font-bold">Keuangan P&L & Laporan SIPGN</h1>
           <p className="text-sm text-muted-foreground">Biaya operasional harian dan kepatuhan anggaran Rp 15.000/porsi.</p>
         </div>
-        <div className="flex gap-2 no-print">
-          <Button variant="outline" onClick={printPreview} data-testid="finance-print-preview-button">
-            <Printer className="h-4 w-4 mr-1.5" /> Print Preview Laporan PDF
+        <div className="flex flex-wrap gap-2 no-print">
+          <Button variant="outline" onClick={printPreview} disabled={previewing} data-testid="finance-print-preview-button">
+            {previewing ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <Printer className="h-4 w-4 mr-1.5" />}
+            Pratinjau PDF Laporan
+          </Button>
+          <Button variant="outline" onClick={exportExcel} disabled={exportingExcel} className="border-emerald-200 text-emerald-700 hover:bg-emerald-50 hover:text-emerald-800" data-testid="finance-excel-export-button">
+            {exportingExcel ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileSpreadsheet className="h-4 w-4 mr-1.5" />}
+            Unduh Excel (.xlsx)
           </Button>
           <Button onClick={exportSipgn} disabled={exporting} className="bg-primary hover:bg-primary/90" data-testid="finance-sipgn-export-button">
             {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileUp className="h-4 w-4 mr-1.5" />}

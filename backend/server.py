@@ -942,6 +942,124 @@ async def sipgn_export(user=Depends(require_roles('admin'))):
     )
 
 
+@api_router.get('/reports/finance-excel')
+async def finance_excel(user=Depends(require_roles('admin'))):
+    """Ekspor rekap keuangan P&L ke file Excel (.xlsx) yang rapi."""
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
+    from openpyxl.utils import get_column_letter
+
+    today = now_utc().strftime('%Y-%m-%d')
+    financials = await db.financials.find({}, {'_id': 0}).sort('tanggal', 1).to_list(30)
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = 'Rekap Keuangan'
+
+    GREEN = 'FF16A34A'
+    GREEN_DARK = 'FF166534'
+    SOFT = 'FFDCFCE7'
+    HEADER_FONT = Font(bold=True, color='FFFFFFFF', size=10)
+    TITLE_FONT = Font(bold=True, color=GREEN_DARK, size=16)
+    SUB_FONT = Font(color='FF64748B', size=10)
+    BOLD = Font(bold=True, size=10)
+    center = Alignment(horizontal='center', vertical='center')
+    right = Alignment(horizontal='right', vertical='center')
+    thin = Side(style='thin', color='FFE2E8F0')
+    border = Border(left=thin, right=thin, top=thin, bottom=thin)
+    rp_fmt = '"Rp" #,##0'
+
+    # ---- Title block ----
+    ws.merge_cells('A1:H1')
+    ws['A1'] = 'NutriDapur OS — Rekap Keuangan P&L'
+    ws['A1'].font = TITLE_FONT
+    ws.merge_cells('A2:H2')
+    ws['A2'] = f'{KITCHEN_NAME}  •  Tanggal Laporan: {today}  •  Standar SIPGN/BGN'
+    ws['A2'].font = SUB_FONT
+    ws.row_dimensions[1].height = 24
+
+    # ---- Table header ----
+    headers = ['Tanggal', 'Hari', 'Porsi', 'Bahan Pangan', 'Gas/Listrik', 'Kemasan', 'Tenaga Kerja', 'HPP/Porsi']
+    header_row = 4
+    for c, h in enumerate(headers, start=1):
+        cell = ws.cell(row=header_row, column=c, value=h)
+        cell.font = HEADER_FONT
+        cell.fill = PatternFill('solid', fgColor=GREEN_DARK)
+        cell.alignment = center if c <= 2 else right
+        cell.border = border
+
+    # ---- Data rows ----
+    r = header_row + 1
+    tot_porsi = tot_bahan = tot_gas = tot_kemasan = tot_tenaga = tot_aktual = tot_budget = 0
+    for f in financials:
+        ws.cell(row=r, column=1, value=f.get('tanggal', '')).border = border
+        ws.cell(row=r, column=2, value=f.get('hari', '')).border = border
+        for col, key in [(3, 'porsi'), (4, 'bahan_pangan'), (5, 'gas_listrik'), (6, 'kemasan'), (7, 'tenaga_kerja'), (8, 'hpp_per_porsi')]:
+            cell = ws.cell(row=r, column=col, value=f.get(key, 0))
+            cell.border = border
+            cell.alignment = right
+            if col >= 4:
+                cell.number_format = rp_fmt
+        tot_porsi += f.get('porsi', 0)
+        tot_bahan += f.get('bahan_pangan', 0)
+        tot_gas += f.get('gas_listrik', 0)
+        tot_kemasan += f.get('kemasan', 0)
+        tot_tenaga += f.get('tenaga_kerja', 0)
+        tot_aktual += f.get('aktual', 0)
+        tot_budget += f.get('budget', 0)
+        r += 1
+
+    # ---- Total row ----
+    ws.cell(row=r, column=1, value='TOTAL').font = BOLD
+    ws.cell(row=r, column=1).fill = PatternFill('solid', fgColor=SOFT)
+    ws.cell(row=r, column=2).fill = PatternFill('solid', fgColor=SOFT)
+    totals = {3: tot_porsi, 4: tot_bahan, 5: tot_gas, 6: tot_kemasan, 7: tot_tenaga, 8: round(tot_aktual / max(tot_porsi, 1))}
+    for col, val in totals.items():
+        cell = ws.cell(row=r, column=col, value=val)
+        cell.font = BOLD
+        cell.alignment = right
+        cell.fill = PatternFill('solid', fgColor=SOFT)
+        cell.border = border
+        if col >= 4:
+            cell.number_format = rp_fmt
+
+    # ---- Summary block ----
+    s = r + 3
+    summary = [
+        ('Total Anggaran (Budget)', tot_budget, rp_fmt),
+        ('Total Realisasi (Aktual)', tot_aktual, rp_fmt),
+        ('Total Margin Operasional', tot_budget - tot_aktual, rp_fmt),
+        ('Kepatuhan Anggaran (%)', round(tot_aktual / max(tot_budget, 1) * 100, 1), '0.0"%"'),
+        ('HPP Rata-rata / Porsi', round(tot_aktual / max(tot_porsi, 1)), rp_fmt),
+        ('Total Porsi Periode', tot_porsi, '#,##0'),
+    ]
+    ws.cell(row=s - 1, column=1, value='RINGKASAN').font = Font(bold=True, color=GREEN_DARK, size=12)
+    for i, (label, val, fmt) in enumerate(summary):
+        rr = s + i
+        lc = ws.cell(row=rr, column=1, value=label)
+        lc.font = BOLD
+        ws.merge_cells(start_row=rr, start_column=1, end_row=rr, end_column=2)
+        vc = ws.cell(row=rr, column=3, value=val)
+        vc.number_format = fmt
+        vc.alignment = right
+        vc.font = Font(bold=True, color=GREEN_DARK, size=10)
+
+    # ---- Column widths ----
+    widths = [14, 12, 10, 15, 13, 12, 14, 13]
+    for i, w in enumerate(widths, start=1):
+        ws.column_dimensions[get_column_letter(i)].width = w
+    ws.freeze_panes = 'A5'
+
+    buf = BytesIO()
+    wb.save(buf)
+    await add_notification('Rekap Keuangan Diekspor', f"Rekap keuangan format Excel berhasil diunduh oleh {user['nama']}.", 'success')
+    return Response(
+        content=buf.getvalue(),
+        media_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        headers={'Content-Disposition': f'attachment; filename="rekap-keuangan-{today}.xlsx"'},
+    )
+
+
 # ================= Landing metrics (public) =================
 @api_router.get('/public/impact-metrics')
 async def impact_metrics():
