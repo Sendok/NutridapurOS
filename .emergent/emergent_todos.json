@@ -1,38 +1,18 @@
 [
   {
-    "content": "Phase 1: POC - OpenRouter API test script with 8s timeout + fallback validation",
+    "content": "Ganti foto landing page dengan ilustrasi dashboard",
     "status": "completed"
   },
   {
-    "content": "Phase 1: Fix POC until working",
+    "content": "Buat ekspor PDF rapi (reportlab) menggantikan JSON kosong",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Get design guidelines via design_agent",
+    "content": "Sesuaikan panduan/tutorial dengan role user",
     "status": "completed"
   },
   {
-    "content": "Phase 2: Install dependencies (backend + frontend)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Backend implementation (auth, RBAC, all API modules, seed data)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Frontend implementation (landing, login, dashboard, modules E-J, parent portal)",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: All user stories covered in Development",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: End to End Testing using Testing Agent",
-    "status": "completed"
-  },
-  {
-    "content": "Phase 2: Fix all issues found in testing",
+    "content": "Test backend PDF export & verifikasi UI tutorial per-role",
     "status": "completed"
   }
 ]

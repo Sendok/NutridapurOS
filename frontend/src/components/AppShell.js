@@ -226,7 +226,7 @@ export const AppShell = ({ children }) => {
         <div className="max-w-[1200px] mx-auto px-4 sm:px-6 py-6">{children}</div>
       </main>
 
-      <TutorialModal open={tutorialOpen} onOpenChange={setTutorialOpen} />
+      <TutorialModal open={tutorialOpen} onOpenChange={setTutorialOpen} role={user.role} />
     </div>
   );
 };

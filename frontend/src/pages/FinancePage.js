@@ -27,12 +27,12 @@ export default function FinancePage() {
       const url = URL.createObjectURL(res.data);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `laporan-sipgn-${new Date().toISOString().slice(0, 10)}.json`;
+      a.download = `laporan-sipgn-bgn-${new Date().toISOString().slice(0, 10)}.pdf`;
       document.body.appendChild(a);
       a.click();
       a.remove();
       URL.revokeObjectURL(url);
-      toast.success('Laporan SIPGN/BGN berhasil diekspor!', { description: 'File siap diunggah ke sistem resmi SIPGN.' });
+      toast.success('Laporan PDF SIPGN/BGN berhasil diunduh!', { description: 'Dokumen PDF rapi siap diunggah ke sistem resmi SIPGN.' });
     } catch {
       toast.error('Gagal mengekspor laporan SIPGN.');
     } finally {
@@ -69,7 +69,7 @@ export default function FinancePage() {
           </Button>
           <Button onClick={exportSipgn} disabled={exporting} className="bg-primary hover:bg-primary/90" data-testid="finance-sipgn-export-button">
             {exporting ? <Loader2 className="h-4 w-4 mr-1.5 animate-spin" /> : <FileUp className="h-4 w-4 mr-1.5" />}
-            Ekspor Format Laporan SIPGN / BGN
+            Unduh PDF Laporan SIPGN / BGN
           </Button>
         </div>
       </div>

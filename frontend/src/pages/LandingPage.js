@@ -8,10 +8,8 @@ import { Card, CardContent } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import {
   ChefHat, Sparkles, ShoppingCart, Camera, QrCode, HeartHandshake, CheckCircle2, ArrowRight,
-  ShieldCheck, Timer, TrendingUp, Building2, XCircle,
+  ShieldCheck, Timer, TrendingUp, Building2, XCircle, LayoutDashboard,
 } from 'lucide-react';
-
-const HERO_IMG = 'https://images.unsplash.com/photo-1562514155-444b9a967dfa?crop=entropy&cs=srgb&fm=jpg&q=85&w=1400';
 
 const FEATURES = [
   { icon: Sparkles, title: 'AI Budget Optimizer', desc: 'AI menyusun 3 opsi menu bergizi (Ekonomis, Seimbang, High-Protein) sesuai anggaran Rp 15.000/porsi dan standar AKG BGN.' },
@@ -54,6 +52,88 @@ const fadeUp = {
   viewport: { once: true },
   transition: { duration: 0.5, ease: [0.2, 0.8, 0.2, 1] },
 };
+
+const HERO_BARS = [62, 78, 55, 88, 70, 95, 82];
+
+const DashboardIllustration = () => (
+  <div className="relative rounded-2xl shadow-xl border border-emerald-100/70 bg-white overflow-hidden select-none" data-testid="hero-dashboard-illustration" aria-label="Ilustrasi dashboard NutriDapur OS">
+    {/* Window chrome */}
+    <div className="flex items-center gap-1.5 px-4 py-3 border-b bg-slate-50/80">
+      <span className="h-2.5 w-2.5 rounded-full bg-rose-300" />
+      <span className="h-2.5 w-2.5 rounded-full bg-amber-300" />
+      <span className="h-2.5 w-2.5 rounded-full bg-emerald-300" />
+      <div className="ml-3 flex items-center gap-1.5 text-[11px] text-slate-400">
+        <LayoutDashboard className="h-3.5 w-3.5 text-emerald-500" />
+        Dashboard — NutriDapur OS
+      </div>
+      <Badge className="ml-auto bg-emerald-100 text-emerald-700 hover:bg-emerald-100 border border-emerald-200 text-[9px] px-1.5 py-0">
+        <ShieldCheck className="h-2.5 w-2.5 mr-0.5" /> SIPGN Ready
+      </Badge>
+    </div>
+
+    <div className="p-4 space-y-4 bg-gradient-to-br from-white to-emerald-50/40">
+      {/* KPI mini cards */}
+      <div className="grid grid-cols-3 gap-2.5">
+        {[
+          { icon: TrendingUp, label: 'Porsi Hari Ini', value: '1.250', tone: 'text-emerald-700 bg-emerald-50' },
+          { icon: ShieldCheck, label: 'Skor Gizi', value: '98%', tone: 'text-sky-700 bg-sky-50' },
+          { icon: Timer, label: 'HPP/Porsi', value: 'Rp 13,8rb', tone: 'text-amber-700 bg-amber-50' },
+        ].map((k, i) => {
+          const Icon = k.icon;
+          return (
+            <div key={i} className="rounded-lg border bg-white p-2.5">
+              <div className={`h-6 w-6 rounded-md flex items-center justify-center mb-1.5 ${k.tone}`}>
+                <Icon className="h-3.5 w-3.5" />
+              </div>
+              <p className="font-display text-sm font-bold leading-none">{k.value}</p>
+              <p className="text-[9px] text-muted-foreground mt-1 leading-tight">{k.label}</p>
+            </div>
+          );
+        })}
+      </div>
+
+      {/* Chart + donut */}
+      <div className="grid grid-cols-3 gap-2.5">
+        <div className="col-span-2 rounded-lg border bg-white p-3">
+          <p className="text-[10px] font-semibold text-slate-600 mb-2">Anggaran vs Realisasi (7 Hari)</p>
+          <div className="flex items-end justify-between gap-1.5 h-20">
+            {HERO_BARS.map((h, i) => (
+              <div key={i} className="flex-1 h-full flex flex-col justify-end gap-0.5">
+                <div className="w-full rounded-t bg-emerald-500" style={{ height: `${h}%` }} />
+                <div className="w-full rounded-b bg-emerald-200" style={{ height: '10%' }} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div className="rounded-lg border bg-white p-3 flex flex-col items-center justify-center">
+          <p className="text-[10px] font-semibold text-slate-600 mb-2 self-start">Komposisi Gizi</p>
+          <div
+            className="h-16 w-16 rounded-full"
+            style={{ background: 'conic-gradient(#16a34a 0% 42%, #d97706 42% 68%, #38bdf8 68% 88%, #e2e8f0 88% 100%)' }}
+          >
+            <div className="h-full w-full flex items-center justify-center">
+              <div className="h-9 w-9 rounded-full bg-white flex items-center justify-center">
+                <span className="text-[9px] font-bold text-emerald-700">4★</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      {/* Menu terkunci row */}
+      <div className="rounded-lg border bg-white p-2.5 flex items-center gap-2.5">
+        <div className="h-7 w-7 rounded-md bg-emerald-50 flex items-center justify-center shrink-0">
+          <CheckCircle2 className="h-4 w-4 text-emerald-600" />
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-[11px] font-semibold truncate">Menu Terkunci: Nasi Ayam Goreng Lengkuas Set</p>
+          <p className="text-[9px] text-muted-foreground">Seimbang · 520 kkal · 21g protein · siap produksi</p>
+        </div>
+        <Badge className="bg-emerald-600 hover:bg-emerald-600 text-white text-[9px] px-1.5 py-0 shrink-0">Locked</Badge>
+      </div>
+    </div>
+  </div>
+);
 
 export default function LandingPage() {
   const [metrics, setMetrics] = useState({ porsi_terdistribusi: 8750, kepatuhan_gizi: 98, hemat_waktu: 70, dapur_aktif: 12 });
@@ -116,7 +196,7 @@ export default function LandingPage() {
             </div>
           </motion.div>
           <motion.div {...fadeUp} transition={{ ...fadeUp.transition, delay: 0.15 }} className="relative">
-            <img src={HERO_IMG} alt="Dapur profesional MBG" className="rounded-2xl shadow-xl w-full object-cover aspect-[4/3]" />
+            <DashboardIllustration />
             <Card className="absolute -bottom-5 -left-3 sm:left-6 shadow-lg border-emerald-100">
               <CardContent className="p-3 flex items-center gap-3">
                 <div className="h-10 w-10 rounded-full bg-emerald-100 flex items-center justify-center">

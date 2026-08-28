@@ -17,6 +17,16 @@ import bcrypt
 import jwt
 import httpx
 
+from io import BytesIO
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4
+from reportlab.lib.units import mm
+from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.platypus import (
+    SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, HRFlowable,
+)
+
 from fallback_menus import FALLBACK_MENUS
 from seed import seed_database, KITCHEN_NAME, QC_PHOTO_URL
 
@@ -653,6 +663,246 @@ async def finance_pnl(user=Depends(require_roles('admin'))):
     }
 
 
+def _rp(v):
+    try:
+        return 'Rp ' + f'{int(round(v)):,}'.replace(',', '.')
+    except Exception:
+        return 'Rp 0'
+
+
+def build_sipgn_pdf(report: dict) -> bytes:
+    """Bangun dokumen PDF laporan SIPGN/BGN yang rapi menggunakan reportlab."""
+    GREEN = colors.HexColor('#16a34a')
+    GREEN_DARK = colors.HexColor('#166534')
+    GREEN_SOFT = colors.HexColor('#dcfce7')
+    AMBER = colors.HexColor('#d97706')
+    SLATE = colors.HexColor('#334155')
+    SLATE_LIGHT = colors.HexColor('#f1f5f9')
+    GREY = colors.HexColor('#64748b')
+
+    buf = BytesIO()
+    doc = SimpleDocTemplate(
+        buf, pagesize=A4,
+        leftMargin=16 * mm, rightMargin=16 * mm,
+        topMargin=16 * mm, bottomMargin=16 * mm,
+        title='Laporan SIPGN / BGN — NutriDapur OS',
+        author='NutriDapur OS',
+    )
+    styles = getSampleStyleSheet()
+    st_title = ParagraphStyle('t', parent=styles['Title'], fontName='Helvetica-Bold', fontSize=18, textColor=GREEN_DARK, spaceAfter=2, leading=22)
+    st_sub = ParagraphStyle('s', parent=styles['Normal'], fontSize=9.5, textColor=GREY, spaceAfter=2)
+    st_h2 = ParagraphStyle('h2', parent=styles['Heading2'], fontName='Helvetica-Bold', fontSize=12, textColor=SLATE, spaceBefore=14, spaceAfter=6)
+    st_body = ParagraphStyle('b', parent=styles['Normal'], fontSize=9.5, textColor=SLATE, leading=14)
+    st_small = ParagraphStyle('sm', parent=styles['Normal'], fontSize=8, textColor=GREY, leading=11)
+    st_cell = ParagraphStyle('c', parent=styles['Normal'], fontSize=8.5, textColor=SLATE, leading=11)
+    st_cellr = ParagraphStyle('cr', parent=st_cell, alignment=TA_RIGHT)
+    st_kpi_val = ParagraphStyle('kv', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=13, textColor=GREEN_DARK, alignment=TA_CENTER, leading=15)
+    st_kpi_lbl = ParagraphStyle('kl', parent=styles['Normal'], fontSize=7.5, textColor=GREY, alignment=TA_CENTER, leading=9)
+
+    elems = []
+    rk = report['ringkasan']
+
+    # ---------- Header banner ----------
+    header_tbl = Table([[
+        Paragraph('<b>NutriDapur&nbsp;OS</b>', ParagraphStyle('logo', parent=styles['Normal'], fontName='Helvetica-Bold', fontSize=15, textColor=colors.white)),
+        Paragraph('LAPORAN OPERASIONAL SIPGN / BGN<br/><font size=7>Program Makan Bergizi Gratis (MBG)</font>', ParagraphStyle('hr', parent=styles['Normal'], fontSize=10, textColor=colors.white, alignment=TA_RIGHT, leading=13)),
+    ]], colWidths=[70 * mm, 108 * mm])
+    header_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, -1), GREEN),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 12),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 12),
+        ('LEFTPADDING', (0, 0), (-1, -1), 12),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 12),
+        ('ROUNDEDCORNERS', [6, 6, 6, 6]),
+    ]))
+    elems.append(header_tbl)
+    elems.append(Spacer(1, 10))
+
+    # ---------- Info satuan pelayanan ----------
+    info_rows = [
+        ['Satuan Pelayanan', report['satuan_pelayanan']],
+        ['Tanggal Laporan', report['tanggal_laporan']],
+        ['Dinyatakan Oleh', report['dinyatakan_oleh']],
+        ['Format Dokumen', report['format']],
+        ['Status Kepatuhan', 'PATUH' if rk['kepatuhan_anggaran_persen'] <= 100 else 'PERLU TINJAUAN'],
+    ]
+    info_tbl = Table([[Paragraph(f'<b>{k}</b>', st_small), Paragraph(str(v), st_body)] for k, v in info_rows], colWidths=[45 * mm, 133 * mm])
+    info_tbl.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (0, -1), SLATE_LIGHT),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 5),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 5),
+        ('LEFTPADDING', (0, 0), (-1, -1), 8),
+        ('LINEBELOW', (0, 0), (-1, -2), 0.5, colors.HexColor('#e2e8f0')),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    elems.append(info_tbl)
+
+    # ---------- KPI ringkasan ----------
+    elems.append(Paragraph('Ringkasan Periode', st_h2))
+    kpis = [
+        (f"{rk['total_porsi_periode']:,}".replace(',', '.'), 'Total Porsi'),
+        (_rp(rk['total_anggaran']), 'Total Anggaran'),
+        (_rp(rk['total_realisasi']), 'Total Realisasi'),
+        (_rp(rk['rata_hpp_per_porsi']), 'HPP / Porsi'),
+        (f"{rk['kepatuhan_anggaran_persen']}%", 'Kepatuhan Anggaran'),
+        (f"{rk['rating_kepuasan_orang_tua']} / 5", f"Rating ({rk['jumlah_ulasan']} ulasan)"),
+    ]
+    kpi_cells = [[Paragraph(v, st_kpi_val), '', Paragraph(v2, st_kpi_val), '', Paragraph(v3, st_kpi_val)] for (v, _), (v2, _), (v3, _) in [(kpis[0], kpis[1], kpis[2])]]
+    kpi_cells = [[Paragraph(v, st_kpi_val), '', Paragraph(v2, st_kpi_val), '', Paragraph(v3, st_kpi_val)] for (v, _), (v2, _), (v3, _) in [(kpis[0], kpis[1], kpis[2])]]
+    # build 2 rows x 3 cols
+    def kpi_block(items):
+
+
+        row_vals = [Paragraph(x[0], st_kpi_val) for x in items]
+        row_lbls = [Paragraph(x[1], st_kpi_lbl) for x in items]
+        t = Table([row_vals, row_lbls], colWidths=[59 * mm] * 3)
+        t.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), GREEN_SOFT),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, 0), 8),
+            ('BOTTOMPADDING', (0, 1), (-1, 1), 8),
+            ('LINEAFTER', (0, 0), (-2, -1), 3, colors.white),
+            ('BOX', (0, 0), (-1, -1), 0.5, GREEN_SOFT),
+        ]))
+        return t
+    elems.append(kpi_block(kpis[:3]))
+    elems.append(Spacer(1, 3))
+    elems.append(kpi_block(kpis[3:]))
+
+    # ---------- Rincian harian ----------
+    elems.append(Paragraph('Rincian Biaya Operasional Harian', st_h2))
+    head = ['Tanggal', 'Porsi', 'Bahan Pangan', 'Gas/Listrik', 'Kemasan', 'Tng Kerja', 'HPP/Porsi', 'Margin']
+    data_rows = [[Paragraph(f'<b>{h}</b>', ParagraphStyle('th', parent=st_cell, textColor=colors.white, alignment=TA_CENTER if i > 0 else TA_LEFT)) for i, h in enumerate(head)]]
+    for f in report['rincian_harian']:
+        data_rows.append([
+            Paragraph(f"{f.get('hari','')}<br/><font size=7 color='#94a3b8'>{f.get('tanggal','')}</font>", st_cell),
+            Paragraph(f"{f.get('porsi',0):,}".replace(',', '.'), st_cellr),
+            Paragraph(_rp(f.get('bahan_pangan', 0)), st_cellr),
+            Paragraph(_rp(f.get('gas_listrik', 0)), st_cellr),
+            Paragraph(_rp(f.get('kemasan', 0)), st_cellr),
+            Paragraph(_rp(f.get('tenaga_kerja', 0)), st_cellr),
+            Paragraph(_rp(f.get('hpp_per_porsi', 0)), st_cellr),
+            Paragraph(_rp(f.get('margin', 0)), st_cellr),
+        ])
+    # total row
+    fin = report['rincian_harian']
+    tot_porsi = sum(f.get('porsi', 0) for f in fin)
+    tot_aktual = sum(f.get('aktual', 0) for f in fin)
+    tot_margin = sum(f.get('margin', 0) for f in fin)
+    data_rows.append([
+        Paragraph('<b>TOTAL</b>', st_cell),
+        Paragraph(f"<b>{tot_porsi:,}</b>".replace(',', '.'), st_cellr),
+        Paragraph('', st_cellr), Paragraph('', st_cellr), Paragraph('', st_cellr),
+        Paragraph(f'<b>{_rp(tot_aktual)}</b>', st_cellr),
+        Paragraph(f"<b>{_rp(round(tot_aktual/max(tot_porsi,1)))}</b>", st_cellr),
+        Paragraph(f'<b>{_rp(tot_margin)}</b>', st_cellr),
+    ])
+    colw = [26 * mm, 14 * mm, 24 * mm, 22 * mm, 20 * mm, 20 * mm, 24 * mm, 24 * mm]
+    dt = Table(data_rows, colWidths=colw, repeatRows=1)
+    dt.setStyle(TableStyle([
+        ('BACKGROUND', (0, 0), (-1, 0), GREEN_DARK),
+        ('BACKGROUND', (0, -1), (-1, -1), SLATE_LIGHT),
+        ('ROWBACKGROUNDS', (0, 1), (-1, -2), [colors.white, colors.HexColor('#f8fafc')]),
+        ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+        ('TOPPADDING', (0, 0), (-1, -1), 4),
+        ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+        ('LEFTPADDING', (0, 0), (-1, -1), 5),
+        ('RIGHTPADDING', (0, 0), (-1, -1), 5),
+        ('LINEBELOW', (0, 0), (-1, -2), 0.4, colors.HexColor('#e2e8f0')),
+        ('LINEABOVE', (0, -1), (-1, -1), 0.8, GREEN),
+        ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+    ]))
+    elems.append(dt)
+
+    # ---------- Menu terkunci ----------
+    menu = report.get('menu_terkunci_hari_ini')
+    if menu:
+        elems.append(Paragraph('Menu Terkunci (Produksi Terkini)', st_h2))
+        items = menu.get('items') or menu.get('menu_items') or []
+        item_txt = ', '.join([i.get('nama', str(i)) if isinstance(i, dict) else str(i) for i in items]) if items else (menu.get('nama_menu') or menu.get('nama') or menu.get('tipe') or '—')
+        gizi = menu.get('nutritional_info') or menu.get('gizi') or {}
+        mbody = f"<b>{menu.get('nama_menu') or menu.get('nama') or menu.get('tipe') or 'Menu Harian'}</b> &nbsp;<font size=8 color='#d97706'>({menu.get('tipe','')})</font><br/>{item_txt}"
+        if gizi:
+            gtxt = ' &nbsp;|&nbsp; '.join([f"{k}: {v}" for k, v in list(gizi.items())[:5]])
+            mbody += f"<br/><font size=8 color='#64748b'>{gtxt}</font>"
+        mtbl = Table([[Paragraph(mbody, st_body)]], colWidths=[178 * mm])
+        mtbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), colors.HexColor('#fffbeb')),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#fde68a')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elems.append(mtbl)
+
+    # ---------- Distribusi ----------
+    deliveries = report.get('distribusi') or []
+    if deliveries:
+        elems.append(Paragraph('Distribusi ke Sekolah', st_h2))
+        drows = [[Paragraph(f'<b>{h}</b>', ParagraphStyle('dh', parent=st_cell, textColor=colors.white)) for h in ['Sekolah', 'Jml Box', 'Status', 'Target Waktu']]]
+        for d in deliveries[:12]:
+            drows.append([
+                Paragraph(str(d.get('sekolah') or d.get('school_name') or d.get('nama', '—')), st_cell),
+                Paragraph(str(d.get('jumlah_box') or d.get('porsi') or '—'), st_cellr),
+                Paragraph(str(d.get('status', '—')).replace('_', ' ').title(), st_cell),
+                Paragraph(str(d.get('target_waktu') or d.get('target_time') or d.get('waktu') or '—'), st_cell),
+            ])
+        dtbl = Table(drows, colWidths=[80 * mm, 22 * mm, 40 * mm, 36 * mm], repeatRows=1)
+        dtbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), GREEN_DARK),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+            ('VALIGN', (0, 0), (-1, -1), 'MIDDLE'),
+            ('TOPPADDING', (0, 0), (-1, -1), 4), ('BOTTOMPADDING', (0, 0), (-1, -1), 4),
+            ('LEFTPADDING', (0, 0), (-1, -1), 6),
+            ('LINEBELOW', (0, 0), (-1, -1), 0.4, colors.HexColor('#e2e8f0')),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#e2e8f0')),
+        ]))
+        elems.append(dtbl)
+
+    # ---------- QC ----------
+    qc = report.get('qc_terakhir_approved')
+    if qc:
+        elems.append(Paragraph('Verifikasi Quality Control (QC) Terakhir', st_h2))
+        chk = qc.get('checklist') or {}
+        chk_txt = ', '.join([k.replace('_', ' ').title() for k, v in chk.items() if v]) or '—'
+        qbody = (
+            f"Status: <b>DISETUJUI</b> &nbsp;|&nbsp; Tanggal: {qc.get('tanggal','—')} {qc.get('waktu','')}<br/>"
+            f"Lokasi: {qc.get('lokasi') or qc.get('location','—')}<br/>"
+            f"Disetujui oleh: {qc.get('approved_by','—')}<br/>"
+            f"Checklist Terpenuhi: {chk_txt}<br/>"
+            f"<font size=8 color='#64748b'>{qc.get('catatan','')}</font>"
+        )
+        qtbl = Table([[Paragraph(qbody, st_body)]], colWidths=[178 * mm])
+        qtbl.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), GREEN_SOFT),
+            ('BOX', (0, 0), (-1, -1), 0.5, colors.HexColor('#86efac')),
+            ('LEFTPADDING', (0, 0), (-1, -1), 10), ('RIGHTPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 8), ('BOTTOMPADDING', (0, 0), (-1, -1), 8),
+        ]))
+        elems.append(qtbl)
+
+    # ---------- Footer / catatan ----------
+    elems.append(Spacer(1, 14))
+    elems.append(HRFlowable(width='100%', thickness=0.5, color=colors.HexColor('#e2e8f0')))
+    elems.append(Spacer(1, 6))
+    elems.append(Paragraph(report.get('catatan', ''), st_small))
+    elems.append(Paragraph(f"Dokumen dihasilkan otomatis oleh NutriDapur OS • {report['tanggal_laporan']} • Mendukung standar BGN & SIPGN", st_small))
+
+    def _footer(canvas, doc_):
+        canvas.saveState()
+        canvas.setFont('Helvetica', 7)
+        canvas.setFillColor(GREY)
+        canvas.drawRightString(A4[0] - 16 * mm, 10 * mm, f'Halaman {doc_.page}')
+        canvas.drawString(16 * mm, 10 * mm, 'NutriDapur OS — Laporan SIPGN/BGN')
+        canvas.setStrokeColor(colors.HexColor('#e2e8f0'))
+        canvas.line(16 * mm, 13 * mm, A4[0] - 16 * mm, 13 * mm)
+        canvas.restoreState()
+
+    doc.build(elems, onFirstPage=_footer, onLaterPages=_footer)
+    return buf.getvalue()
+
+
 @api_router.get('/reports/sipgn-export')
 async def sipgn_export(user=Depends(require_roles('admin'))):
     today = now_utc().strftime('%Y-%m-%d')
@@ -683,12 +933,12 @@ async def sipgn_export(user=Depends(require_roles('admin'))):
         'dinyatakan_oleh': user['nama'],
         'catatan': 'Laporan ini dihasilkan otomatis oleh NutriDapur OS dalam format siap unggah SIPGN/BGN.',
     }
-    await add_notification('Laporan SIPGN Diekspor', f"Laporan format SIPGN/BGN berhasil diekspor oleh {user['nama']}.", 'success')
-    content = json.dumps(report, ensure_ascii=False, indent=2)
+    await add_notification('Laporan SIPGN Diekspor', f"Laporan format SIPGN/BGN (PDF) berhasil diekspor oleh {user['nama']}.", 'success')
+    pdf_bytes = build_sipgn_pdf(report)
     return Response(
-        content=content,
-        media_type='application/json',
-        headers={'Content-Disposition': f'attachment; filename="laporan-sipgn-{today}.json"'},
+        content=pdf_bytes,
+        media_type='application/pdf',
+        headers={'Content-Disposition': f'attachment; filename="laporan-sipgn-bgn-{today}.pdf"'},
     )
 
 
